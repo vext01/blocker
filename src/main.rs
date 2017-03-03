@@ -12,6 +12,7 @@
 
 #![feature(box_syntax)]
 #![feature(rustc_private)]
+#![feature(core_intrinsics)]
 
 extern crate getopts;
 extern crate rustc;
@@ -22,21 +23,23 @@ use rustc::session::Session;
 use rustc::session::config::{self, Input, ErrorOutputType};
 use rustc_driver::{driver, CompilerCalls, Compilation, RustcDefaultCalls};
 use syntax::{ast, errors};
+use rustc::mir;
+use std::cell::RefCell;
 
 use std::path::PathBuf;
 
 
-struct BlockerCalls {
+struct Blocker {
     default_calls: RustcDefaultCalls,
 }
 
-impl BlockerCalls {
-    fn new() -> BlockerCalls {
-        BlockerCalls { default_calls: RustcDefaultCalls }
+impl Blocker {
+    fn new() -> Blocker {
+        Blocker { default_calls: RustcDefaultCalls }
     }
 }
 
-impl<'a> CompilerCalls<'a> for BlockerCalls {
+impl<'a> CompilerCalls<'a> for Blocker {
     fn early_callback(&mut self,
                       _: &getopts::Matches,
                       _: &config::Options,
@@ -77,15 +80,24 @@ impl<'a> CompilerCalls<'a> for BlockerCalls {
     fn build_controller(&mut self, _: &Session,  _: &getopts::Matches) -> driver::CompileController<'a> {
         let mut control = driver::CompileController::basic();
         control.after_analysis.stop = Compilation::Continue;
-        control.after_analysis.callback = box |state: &mut driver::CompileState| {
-            println!("xxx");
-        };
+        control.after_analysis.callback = Box::new(|state: &mut driver::CompileState| {
+            match &state.tcx {
+                &Some(ref gcx) => walk_mir(&gcx.maps.mir),
+                _ => panic!("no gcx"),
+            }
+        });
+
+                    //.gcx.maps.mir;
         control
     }
 }
 
+fn walk_mir(mir_map: &RefCell<rustc::dep_graph::DepTrackingMap<rustc::ty::queries::mir>>) {
+    let mir = mir_map.borrow();
+}
+
 fn main() {
     let args: Vec<_> = std::env::args().collect();
-    rustc_driver::run_compiler(&args, &mut BlockerCalls::new(), None, None);
+    rustc_driver::run_compiler(&args, &mut Blocker::new(), None, None);
     // XXX check result
 }

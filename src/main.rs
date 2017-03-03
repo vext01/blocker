@@ -12,7 +12,6 @@
 
 #![feature(box_syntax)]
 #![feature(rustc_private)]
-#![feature(core_intrinsics)]
 
 extern crate getopts;
 extern crate rustc;
@@ -23,11 +22,26 @@ use rustc::session::Session;
 use rustc::session::config::{self, Input, ErrorOutputType};
 use rustc_driver::{driver, CompilerCalls, Compilation, RustcDefaultCalls};
 use syntax::{ast, errors};
-use rustc::mir;
-use std::cell::RefCell;
+use rustc::hir::{Item, TraitItem, ImplItem};
+use rustc::hir::itemlikevisit::ItemLikeVisitor;
 
 use std::path::PathBuf;
 
+struct BlockerHirVisitor {}
+
+impl<'a> ItemLikeVisitor<'a> for BlockerHirVisitor {
+    fn visit_item(&mut self, item: &Item) {
+        println!("visit an item: {:?}", item);
+    }
+
+    fn visit_trait_item(&mut self, _: &TraitItem) {
+        // unused, but required by trait
+    }
+
+    fn visit_impl_item(&mut self, _: &ImplItem) {
+        // unused, but required by trait
+    }
+}
 
 struct Blocker {
     default_calls: RustcDefaultCalls,
@@ -81,23 +95,23 @@ impl<'a> CompilerCalls<'a> for Blocker {
         let mut control = driver::CompileController::basic();
         control.after_analysis.stop = Compilation::Continue;
         control.after_analysis.callback = Box::new(|state: &mut driver::CompileState| {
-            match &state.tcx {
-                &Some(ref gcx) => walk_mir(&gcx.maps.mir),
-                _ => panic!("no gcx"),
-            }
-        });
+			//println!("yo");
+            let tcx = state.tcx.expect("no tcx!");
+            let krate = tcx.hir.krate(); //expanded_crate.as_ref();
 
-                    //.gcx.maps.mir;
+            let mut hir_visitor = BlockerHirVisitor{};
+            krate.visit_all_item_likes(&mut hir_visitor);
+
+            // XXX get the DefId out for functions
+
+            // XXX query MIR with DefId:
+            // state->tcx->item_mir(DefId)
+        });
         control
     }
-}
-
-fn walk_mir(mir_map: &RefCell<rustc::dep_graph::DepTrackingMap<rustc::ty::queries::mir>>) {
-    let mir = mir_map.borrow();
 }
 
 fn main() {
     let args: Vec<_> = std::env::args().collect();
     rustc_driver::run_compiler(&args, &mut Blocker::new(), None, None);
-    // XXX check result
 }

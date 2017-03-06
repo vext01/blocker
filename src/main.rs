@@ -26,6 +26,7 @@ use rustc::hir::{Item, TraitItem, ImplItem};
 use rustc::hir::itemlikevisit::ItemLikeVisitor;
 
 use std::path::PathBuf;
+use std::process::Command;
 
 struct BlockerHirVisitor {}
 
@@ -109,7 +110,22 @@ impl<'a> CompilerCalls<'a> for Blocker {
     }
 }
 
+/*
+ * This program will not work properly without knowing its sysroot, which it is unable to locate
+ * itself.
+ *
+ * Instead of having the user tell us where it is, we instead assume that the sysroot of the rustc
+ * in the PATH is the sysroot to use.
+ */
+fn find_sysroot() -> String {
+    let output = Command::new("rustc").arg("--print").arg("sysroot").output()
+        .expect("failed to run rustc");
+    String::from(String::from_utf8(output.stdout).expect("rustc gave us a weird sysroot").trim())
+}
+
 fn main() {
-    let args: Vec<_> = std::env::args().collect();
+    let mut args: Vec<_> = std::env::args().collect();
+    args.push(String::from("--sysroot"));
+    args.push(find_sysroot());
     rustc_driver::run_compiler(&args, &mut Blocker::new(), None, None);
 }

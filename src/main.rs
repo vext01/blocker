@@ -87,8 +87,7 @@ impl<'a> CompilerCalls<'a> for Blocker {
                 ofile: &Option<PathBuf>,
                 r: &errors::registry::Registry)
                 -> Option<(Input, Option<PathBuf>)> {
-        self.default_calls.no_input(m, o, cc, odir, ofile, r);
-        panic!("No input");
+        self.default_calls.no_input(m, o, cc, odir, ofile, r)
     }
 
     fn build_controller(&mut self, _: &Session,  _: &getopts::Matches) -> driver::CompileController<'a> {

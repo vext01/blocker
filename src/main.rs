@@ -31,7 +31,7 @@ struct BlockerHirVisitor {}
 
 impl<'a> ItemLikeVisitor<'a> for BlockerHirVisitor {
     fn visit_item(&mut self, item: &Item) {
-        println!("visit an item: {:?}", item);
+        // XXX
     }
 
     fn visit_trait_item(&mut self, _: &TraitItem) {
@@ -95,7 +95,6 @@ impl<'a> CompilerCalls<'a> for Blocker {
         let mut control = driver::CompileController::basic();
         control.after_analysis.stop = Compilation::Continue;
         control.after_analysis.callback = Box::new(|state: &mut driver::CompileState| {
-			//println!("yo");
             let tcx = state.tcx.expect("no tcx!");
             let krate = tcx.hir.krate(); //expanded_crate.as_ref();
 

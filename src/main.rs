@@ -27,10 +27,12 @@ use rustc_driver::{driver, CompilerCalls, Compilation, RustcDefaultCalls};
 use syntax::{ast, errors};
 use syntax::ast::{NodeId};
 use rustc::hir::{Item, TraitItem, ImplItem, Item_};
+use rustc::mir::{Mir};
 use rustc::hir::itemlikevisit::ItemLikeVisitor;
 
 use std::path::PathBuf;
 use std::process::Command;
+
 
 struct BlockerHirVisitor {
     func_nodes: Vec<NodeId>,
@@ -122,12 +124,26 @@ impl<'a> CompilerCalls<'a> for Blocker {
 
             for id in hir_visitor.func_nodes {
                 let did = tcx.hir.local_def_id(id);
-                let mir = tcx.item_mir(did);
-                // XXX
+                let mir_ref = tcx.item_mir(did);
+                let mut walker = Walker::new(&mir_ref);
+                walker.walk();
             }
-
         });
         control
+    }
+}
+
+struct Walker<'a, 'tcx: 'a> {
+    mir_ref: &'a Mir<'tcx>,
+}
+
+impl<'a, 'tcx: 'a> Walker<'a, 'tcx> {
+    fn new(mir_ref: &'a Mir<'tcx>) -> Walker<'a, 'tcx> {
+        Walker{mir_ref: mir_ref}
+
+    }
+    fn walk(&mut self) {
+        // XXX
     }
 }
 

@@ -12,7 +12,10 @@
 
 #![feature(box_syntax)]
 #![feature(rustc_private)]
+#[macro_use] extern crate log;
 
+
+extern crate env_logger;
 extern crate getopts;
 extern crate rustc;
 extern crate rustc_driver;
@@ -22,17 +25,32 @@ use rustc::session::Session;
 use rustc::session::config::{self, Input, ErrorOutputType};
 use rustc_driver::{driver, CompilerCalls, Compilation, RustcDefaultCalls};
 use syntax::{ast, errors};
-use rustc::hir::{Item, TraitItem, ImplItem};
+use syntax::ast::{NodeId};
+use rustc::hir::{Item, TraitItem, ImplItem, Item_};
 use rustc::hir::itemlikevisit::ItemLikeVisitor;
 
 use std::path::PathBuf;
 use std::process::Command;
 
-struct BlockerHirVisitor {}
+struct BlockerHirVisitor {
+    func_nodes: Vec<NodeId>,
+}
+
+impl BlockerHirVisitor {
+    fn new() -> BlockerHirVisitor {
+        BlockerHirVisitor {func_nodes: Vec::new()}
+    }
+}
 
 impl<'a> ItemLikeVisitor<'a> for BlockerHirVisitor {
     fn visit_item(&mut self, item: &Item) {
-        // XXX
+        match item.node {
+            Item_::ItemFn(..) => {
+                debug!("found function: {}", item.name);
+                self.func_nodes.push(item.id);
+            },
+            _ => {},
+        }
     }
 
     fn visit_trait_item(&mut self, _: &TraitItem) {
@@ -96,15 +114,18 @@ impl<'a> CompilerCalls<'a> for Blocker {
         control.after_analysis.stop = Compilation::Continue;
         control.after_analysis.callback = Box::new(|state: &mut driver::CompileState| {
             let tcx = state.tcx.expect("no tcx!");
-            let krate = tcx.hir.krate(); //expanded_crate.as_ref();
+            let krate = tcx.hir.krate();
 
-            let mut hir_visitor = BlockerHirVisitor{};
+            let mut hir_visitor = BlockerHirVisitor::new();
             krate.visit_all_item_likes(&mut hir_visitor);
+            debug!("Found {} functions", hir_visitor.func_nodes.len());
 
-            // XXX get the DefId out for functions
+            for id in hir_visitor.func_nodes {
+                let did = tcx.hir.local_def_id(id);
+                let mir = tcx.item_mir(did);
+                // XXX
+            }
 
-            // XXX query MIR with DefId:
-            // state->tcx->item_mir(DefId)
         });
         control
     }
@@ -124,6 +145,7 @@ fn find_sysroot() -> String {
 }
 
 fn main() {
+    env_logger::init().unwrap();
     let mut args: Vec<_> = std::env::args().collect();
     args.push(String::from("--sysroot"));
     args.push(find_sysroot());

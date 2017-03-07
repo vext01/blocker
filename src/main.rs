@@ -27,11 +27,13 @@ use rustc_driver::{driver, CompilerCalls, Compilation, RustcDefaultCalls};
 use syntax::{ast, errors};
 use syntax::ast::{NodeId};
 use rustc::hir::{Item, TraitItem, ImplItem, Item_};
-use rustc::mir::{Mir};
+use rustc::mir::{Mir, TerminatorKind};
 use rustc::hir::itemlikevisit::ItemLikeVisitor;
+use std::io::Write;
 
 use std::path::PathBuf;
 use std::process::Command;
+use std::fs::File;
 
 
 struct BlockerHirVisitor {
@@ -135,15 +137,76 @@ impl<'a> CompilerCalls<'a> for Blocker {
 
 struct Walker<'a, 'tcx: 'a> {
     mir_ref: &'a Mir<'tcx>,
+    dot_file: File,
 }
 
 impl<'a, 'tcx: 'a> Walker<'a, 'tcx> {
     fn new(mir_ref: &'a Mir<'tcx>) -> Walker<'a, 'tcx> {
-        Walker{mir_ref: mir_ref}
+        let mut file = File::create("out.dot").expect("failed to create dot file");
+        file.write_all(b"digraph g {\n").expect("write failed");
+        Walker{
+            mir_ref: mir_ref,
+            dot_file: file,
+        }
 
     }
+
     fn walk(&mut self) {
-        // XXX
+        for (blk_id, blk) in self.mir_ref.basic_blocks().iter_enumerated() {
+            println!("block: {:?}", blk_id);
+            match blk.terminator {
+                None => self.dot_out(&format!("{:?};\n", blk_id)),
+                Some(ref term) => {
+                    match &term.kind {
+                        &TerminatorKind::Goto{ref target} =>
+                            self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target)),
+                        &TerminatorKind::SwitchInt{ref targets, ..} => {
+                            for target in targets {
+                                self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
+                            }
+                        },
+                        &TerminatorKind::Call{ref destination, ref cleanup, ..} => {
+                            if let &Some((_, ref target)) = destination {
+                                self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
+                            } else if let &Some(ref target) = cleanup {
+                                self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
+                            } else {
+                                self.dot_out(&format!("{:?};\n", blk_id));
+                            }
+                        },
+                        &TerminatorKind::Resume
+                            | &TerminatorKind::Return
+                            | &TerminatorKind::Unreachable =>
+                            self.dot_out(&format!("{:?};\n", blk_id)),
+                        &TerminatorKind::Drop{ref target, ref unwind, ..} => {
+                            self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
+                            if let &Some(ref target) = unwind {
+                                self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
+                            }
+                        },
+                        &TerminatorKind::DropAndReplace{ref target, ref unwind, ..} => {
+                            self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
+                            if let &Some(ref target) = unwind {
+                                self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
+                            }
+                        },
+                        &TerminatorKind::Assert{ref target, ref cleanup, ..} => {
+                            self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
+                            if let &Some(ref target) = cleanup {
+                                self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
+                            }
+                        },
+                    }
+                }
+            }
+        }
+
+        // terminate dot file
+        self.dot_file.write_all(b"}\n").expect("write failed");
+    }
+
+    fn dot_out(&mut self, s: &str) {
+        self.dot_file.write_all(s.as_bytes()).expect("write failed");
     }
 }
 

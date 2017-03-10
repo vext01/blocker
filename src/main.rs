@@ -27,7 +27,7 @@ use rustc_driver::{driver, CompilerCalls, Compilation, RustcDefaultCalls};
 use syntax::{ast, errors};
 use syntax::ast::{NodeId};
 use rustc::hir::{Item, TraitItem, ImplItem, Item_};
-use rustc::mir::{Mir, TerminatorKind, BasicBlock};
+use rustc::mir::{Mir, TerminatorKind, BasicBlock, Statement};
 use rustc::hir::itemlikevisit::ItemLikeVisitor;
 use std::io::Write;
 
@@ -143,7 +143,7 @@ struct Walker<'a, 'tcx: 'a> {
 impl<'a, 'tcx: 'a> Walker<'a, 'tcx> {
     fn new(mir_ref: &'a Mir<'tcx>) -> Walker<'a, 'tcx> {
         let mut file = File::create("out.dot").expect("failed to create dot file");
-        file.write_all(b"digraph g {\n").expect("write failed");
+        file.write_all(b"digraph g {\nnode [shape=box];\n").expect("write failed");
         Walker{
             mir_ref: mir_ref,
             dot_file: file,
@@ -151,10 +151,14 @@ impl<'a, 'tcx: 'a> Walker<'a, 'tcx> {
 
     }
 
-    fn render_node(&mut self, blk_id: BasicBlock, children: Vec<BasicBlock>) {
-        let label = format!("{:?}\n\nBody", blk_id);
-        self.dot_out(&format!("{:?} [label={:?}];\n", blk_id, label));
+    fn render_node(&mut self, blk_id: BasicBlock, children: Vec<BasicBlock>, statements: &Vec<Statement>) {
+        let mut label = String::new();
+        label.push_str(&format!("{:?}\\n\\n", blk_id));
+        for stmt in statements {
+            label.push_str(&format!("{:?}\\n", stmt));
+        }
 
+        self.dot_out(&format!("{:?} [label=\"{}\"];\n", blk_id, label));
         for child in children {
             self.dot_out(&format!("{:?} -> {:?};\n", blk_id, child));
         }
@@ -208,7 +212,7 @@ impl<'a, 'tcx: 'a> Walker<'a, 'tcx> {
                     }
                 }
             };
-            self.render_node(blk_id, successors);
+            self.render_node(blk_id, successors, &blk.statements);
         }
 
         // terminate dot file

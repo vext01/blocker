@@ -27,7 +27,7 @@ use rustc_driver::{driver, CompilerCalls, Compilation, RustcDefaultCalls};
 use syntax::{ast, errors};
 use syntax::ast::{NodeId};
 use rustc::hir::{Item, TraitItem, ImplItem, Item_};
-use rustc::mir::{Mir, TerminatorKind};
+use rustc::mir::{Mir, TerminatorKind, BasicBlock};
 use rustc::hir::itemlikevisit::ItemLikeVisitor;
 use std::io::Write;
 
@@ -151,50 +151,62 @@ impl<'a, 'tcx: 'a> Walker<'a, 'tcx> {
 
     }
 
+    fn render_node(&mut self, blk_id: &BasicBlock, children: Vec<&BasicBlock>) {
+        let label = format!("{:?}\n\nBody", blk_id);
+        self.dot_out(&format!("{:?} [label={:?}];\n", blk_id, label));
+
+        for child in children {
+            self.dot_out(&format!("{:?} -> {:?};\n", blk_id, child));
+        }
+    }
+
     fn walk(&mut self) {
         for (blk_id, blk) in self.mir_ref.basic_blocks().iter_enumerated() {
             println!("block: {:?}", blk_id);
             match blk.terminator {
-                None => self.dot_out(&format!("{:?};\n", blk_id)),
+                None => self.render_node(&blk_id, vec![]),
                 Some(ref term) => {
                     match &term.kind {
                         &TerminatorKind::Goto{ref target} =>
-                            self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target)),
+                            self.render_node(&blk_id, vec![target]),
                         &TerminatorKind::SwitchInt{ref targets, ..} => {
-                            for target in targets {
-                                self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
-                            }
+                            let targets = targets.iter().collect::<Vec<_>>();
+                            self.render_node(&blk_id, targets);
                         },
                         &TerminatorKind::Call{ref destination, ref cleanup, ..} => {
-                            if let &Some((_, ref target)) = destination {
-                                self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
-                            } else if let &Some(ref target) = cleanup {
-                                self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
-                            } else {
-                                self.dot_out(&format!("{:?};\n", blk_id));
+                            let mut targets = Vec::new();
+                            if let &Some((_, ref t)) = destination {
+                                targets.push(t);
                             }
+                            if let &Some(ref t) = cleanup {
+                                targets.push(t);
+                            }
+                            self.render_node(&blk_id, targets);
                         },
                         &TerminatorKind::Resume
                             | &TerminatorKind::Return
                             | &TerminatorKind::Unreachable =>
-                            self.dot_out(&format!("{:?};\n", blk_id)),
-                        &TerminatorKind::Drop{ref target, ref unwind, ..} => {
-                            self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
-                            if let &Some(ref target) = unwind {
-                                self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
+                            self.render_node(&blk_id, vec![]),
+                        &TerminatorKind::Drop{target, unwind, ..} => {
+                            let mut targets = vec![&target];
+                            if let Some(ref t) = unwind {
+                                targets.push(t);
                             }
+                            self.render_node(&blk_id, targets);
                         },
-                        &TerminatorKind::DropAndReplace{ref target, ref unwind, ..} => {
-                            self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
-                            if let &Some(ref target) = unwind {
-                                self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
+                        &TerminatorKind::DropAndReplace{target, unwind, ..} => {
+                            let mut targets = vec![&target];
+                            if let Some(ref t) = unwind {
+                                targets.push(t);
                             }
+                            self.render_node(&blk_id, targets);
                         },
-                        &TerminatorKind::Assert{ref target, ref cleanup, ..} => {
-                            self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
-                            if let &Some(ref target) = cleanup {
-                                self.dot_out(&format!("{:?} -> {:?};\n", blk_id, target));
+                        &TerminatorKind::Assert{target, cleanup, ..} => {
+                            let mut targets = vec![&target];
+                            if let Some(ref t) = cleanup {
+                                targets.push(t);
                             }
+                            self.render_node(&blk_id, targets);
                         },
                     }
                 }

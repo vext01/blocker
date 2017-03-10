@@ -151,7 +151,7 @@ impl<'a, 'tcx: 'a> Walker<'a, 'tcx> {
 
     }
 
-    fn render_node(&mut self, blk_id: &BasicBlock, children: Vec<&BasicBlock>) {
+    fn render_node(&mut self, blk_id: BasicBlock, children: Vec<BasicBlock>) {
         let label = format!("{:?}\n\nBody", blk_id);
         self.dot_out(&format!("{:?} [label={:?}];\n", blk_id, label));
 
@@ -163,54 +163,52 @@ impl<'a, 'tcx: 'a> Walker<'a, 'tcx> {
     fn walk(&mut self) {
         for (blk_id, blk) in self.mir_ref.basic_blocks().iter_enumerated() {
             println!("block: {:?}", blk_id);
-            match blk.terminator {
-                None => self.render_node(&blk_id, vec![]),
+            let successors: Vec<BasicBlock> = match blk.terminator {
+                None => vec![],
                 Some(ref term) => {
                     match &term.kind {
-                        &TerminatorKind::Goto{ref target} =>
-                            self.render_node(&blk_id, vec![target]),
+                        &TerminatorKind::Goto{target} => vec![target],
                         &TerminatorKind::SwitchInt{ref targets, ..} => {
-                            let targets = targets.iter().collect::<Vec<_>>();
-                            self.render_node(&blk_id, targets);
-                        },
-                        &TerminatorKind::Call{ref destination, ref cleanup, ..} => {
+                            targets.iter().map(|x| x.clone()).collect()
+                        }
+                        &TerminatorKind::Call{ref destination, cleanup, ..} => {
                             let mut targets = Vec::new();
-                            if let &Some((_, ref t)) = destination {
+                            if let &Some((_, t)) = destination {
                                 targets.push(t);
                             }
-                            if let &Some(ref t) = cleanup {
+                            if let Some(t) = cleanup {
                                 targets.push(t);
                             }
-                            self.render_node(&blk_id, targets);
+                            targets
                         },
                         &TerminatorKind::Resume
                             | &TerminatorKind::Return
-                            | &TerminatorKind::Unreachable =>
-                            self.render_node(&blk_id, vec![]),
+                            | &TerminatorKind::Unreachable => vec![],
                         &TerminatorKind::Drop{target, unwind, ..} => {
-                            let mut targets = vec![&target];
-                            if let Some(ref t) = unwind {
+                            let mut targets = vec![target];
+                            if let Some(t) = unwind {
                                 targets.push(t);
                             }
-                            self.render_node(&blk_id, targets);
+                            targets
                         },
                         &TerminatorKind::DropAndReplace{target, unwind, ..} => {
-                            let mut targets = vec![&target];
-                            if let Some(ref t) = unwind {
+                            let mut targets = vec![target];
+                            if let Some(t) = unwind {
                                 targets.push(t);
                             }
-                            self.render_node(&blk_id, targets);
+                            targets
                         },
                         &TerminatorKind::Assert{target, cleanup, ..} => {
-                            let mut targets = vec![&target];
-                            if let Some(ref t) = cleanup {
+                            let mut targets = vec![target];
+                            if let Some(t) = cleanup {
                                 targets.push(t);
                             }
-                            self.render_node(&blk_id, targets);
+                            targets
                         },
                     }
                 }
-            }
+            };
+            self.render_node(blk_id, successors);
         }
 
         // terminate dot file

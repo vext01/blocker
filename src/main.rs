@@ -37,7 +37,7 @@ use std::fs::File;
 
 
 struct BlockerHirVisitor {
-    func_nodes: Vec<NodeId>,
+    func_nodes: Vec<(NodeId, String)>,
 }
 
 impl BlockerHirVisitor {
@@ -51,7 +51,7 @@ impl<'a> ItemLikeVisitor<'a> for BlockerHirVisitor {
         match item.node {
             Item_::ItemFn(..) => {
                 debug!("found function: {}", item.name);
-                self.func_nodes.push(item.id);
+                self.func_nodes.push((item.id, format!("{:?}", item.name)));
             },
             _ => {},
         }
@@ -124,10 +124,10 @@ impl<'a> CompilerCalls<'a> for Blocker {
             krate.visit_all_item_likes(&mut hir_visitor);
             debug!("Found {} functions", hir_visitor.func_nodes.len());
 
-            for id in hir_visitor.func_nodes {
+            for (id, name) in hir_visitor.func_nodes {
                 let did = tcx.hir.local_def_id(id);
                 let mir_ref = tcx.item_mir(did);
-                let mut walker = Walker::new(&mir_ref);
+                let mut walker = Walker::new(&mir_ref, &name);
                 walker.walk();
             }
         });
@@ -141,8 +141,9 @@ struct Walker<'a, 'tcx: 'a> {
 }
 
 impl<'a, 'tcx: 'a> Walker<'a, 'tcx> {
-    fn new(mir_ref: &'a Mir<'tcx>) -> Walker<'a, 'tcx> {
-        let mut file = File::create("out.dot").expect("failed to create dot file");
+    fn new(mir_ref: &'a Mir<'tcx>, func_name: &'a str) -> Walker<'a, 'tcx> {
+        let filename = format!("{}.dot", func_name);
+        let mut file = File::create(filename).expect("failed to create dot file");
         file.write_all(b"digraph g {\nnode [shape=box];\n").expect("write failed");
         Walker{
             mir_ref: mir_ref,

@@ -151,7 +151,7 @@ impl<'a, 'tcx: 'a> Walker<'a, 'tcx> {
 
     }
 
-    fn render_node(&mut self, blk_id: BasicBlock, children: Vec<BasicBlock>, statements: &Vec<Statement>) {
+    fn render_node(&mut self, blk_id: BasicBlock, children: Vec<(BasicBlock, &str)>, statements: &Vec<Statement>) {
         let mut label = String::new();
         label.push_str(&format!("{:?}\\n\\n", blk_id));
         for stmt in statements {
@@ -160,28 +160,28 @@ impl<'a, 'tcx: 'a> Walker<'a, 'tcx> {
 
         self.dot_out(&format!("{:?} [label=\"{}\"];\n", blk_id, label));
         for child in children {
-            self.dot_out(&format!("{:?} -> {:?};\n", blk_id, child));
+            self.dot_out(&format!("{:?} -> {:?} [label=\"{}\"];\n", blk_id, child.0, child.1));
         }
     }
 
     fn walk(&mut self) {
         for (blk_id, blk) in self.mir_ref.basic_blocks().iter_enumerated() {
             println!("block: {:?}", blk_id);
-            let successors: Vec<BasicBlock> = match blk.terminator {
+            // BasicBlock, Edge label
+            let successors: Vec<(BasicBlock, &'static str)> = match blk.terminator {
                 None => vec![],
                 Some(ref term) => {
                     match &term.kind {
-                        &TerminatorKind::Goto{target} => vec![target],
-                        &TerminatorKind::SwitchInt{ref targets, ..} => {
-                            targets.iter().map(|x| x.clone()).collect()
-                        }
+                        &TerminatorKind::Goto{target} => vec![(target, "Goto")],
+                        &TerminatorKind::SwitchInt{ref targets, ..} =>
+                            targets.iter().map(|x| (x.clone(), "SwitchInt")).collect(),
                         &TerminatorKind::Call{ref destination, cleanup, ..} => {
                             let mut targets = Vec::new();
                             if let &Some((_, t)) = destination {
-                                targets.push(t);
+                                targets.push((t, "Call"));
                             }
                             if let Some(t) = cleanup {
-                                targets.push(t);
+                                targets.push((t, "CleanUp"));
                             }
                             targets
                         },
@@ -189,23 +189,23 @@ impl<'a, 'tcx: 'a> Walker<'a, 'tcx> {
                             | &TerminatorKind::Return
                             | &TerminatorKind::Unreachable => vec![],
                         &TerminatorKind::Drop{target, unwind, ..} => {
-                            let mut targets = vec![target];
+                            let mut targets = vec![(target, "Drop")];
                             if let Some(t) = unwind {
-                                targets.push(t);
+                                targets.push((t, "Unwind"));
                             }
                             targets
                         },
                         &TerminatorKind::DropAndReplace{target, unwind, ..} => {
-                            let mut targets = vec![target];
+                            let mut targets = vec![(target, "DropReplace")];
                             if let Some(t) = unwind {
-                                targets.push(t);
+                                targets.push((t, "Unwind"));
                             }
                             targets
                         },
                         &TerminatorKind::Assert{target, cleanup, ..} => {
-                            let mut targets = vec![target];
+                            let mut targets = vec![(target, "Assert")];
                             if let Some(t) = cleanup {
-                                targets.push(t);
+                                targets.push((t, "Cleanup"));
                             }
                             targets
                         },

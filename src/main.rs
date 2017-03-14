@@ -19,6 +19,7 @@ extern crate env_logger;
 extern crate getopts;
 extern crate rustc;
 extern crate rustc_driver;
+extern crate rustc_mir;
 extern crate syntax;
 
 use rustc::session::Session;
@@ -27,9 +28,8 @@ use rustc_driver::{driver, CompilerCalls, Compilation, RustcDefaultCalls};
 use syntax::{ast, errors};
 use syntax::ast::{NodeId};
 use rustc::hir::{Item, TraitItem, ImplItem, Item_};
-use rustc::mir::{Mir, TerminatorKind, BasicBlock, Statement};
+use rustc_mir::graphviz::write_mir_graphviz;
 use rustc::hir::itemlikevisit::ItemLikeVisitor;
-use std::io::Write;
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -126,102 +126,13 @@ impl<'a> CompilerCalls<'a> for Blocker {
 
             for (id, name) in hir_visitor.func_nodes {
                 let did = tcx.hir.local_def_id(id);
-                let mir_ref = tcx.item_mir(did);
-                let mut walker = Walker::new(&mir_ref, &name);
-                walker.walk();
+                let filename = format!("{}.dot", name);
+                let mut file = File::create(filename).expect("failed to create dot file");
+                write_mir_graphviz(tcx, vec![did].into_iter(), &mut file).expect(
+                    "failed to write graph");
             }
         });
         control
-    }
-}
-
-struct Walker<'a, 'tcx: 'a> {
-    mir_ref: &'a Mir<'tcx>,
-    dot_file: File,
-}
-
-impl<'a, 'tcx: 'a> Walker<'a, 'tcx> {
-    fn new(mir_ref: &'a Mir<'tcx>, func_name: &'a str) -> Walker<'a, 'tcx> {
-        let filename = format!("{}.dot", func_name);
-        let mut file = File::create(filename).expect("failed to create dot file");
-        file.write_all(b"digraph g {\nnode [shape=box];\n").expect("write failed");
-        Walker{
-            mir_ref: mir_ref,
-            dot_file: file,
-        }
-
-    }
-
-    fn render_node(&mut self, blk_id: BasicBlock, children: Vec<(BasicBlock, &str)>, statements: &Vec<Statement>) {
-        let mut label = String::new();
-        label.push_str(&format!("{:?}\\n\\n", blk_id));
-        for stmt in statements {
-            label.push_str(&format!("{:?}\\n", stmt));
-        }
-
-        self.dot_out(&format!("{:?} [label=\"{}\"];\n", blk_id, label));
-        for child in children {
-            self.dot_out(&format!("{:?} -> {:?} [label=\"{}\"];\n", blk_id, child.0, child.1));
-        }
-    }
-
-    fn walk(&mut self) {
-        for (blk_id, blk) in self.mir_ref.basic_blocks().iter_enumerated() {
-            println!("block: {:?}", blk_id);
-            // BasicBlock, Edge label
-            let successors: Vec<(BasicBlock, &'static str)> = match blk.terminator {
-                None => vec![],
-                Some(ref term) => {
-                    match &term.kind {
-                        &TerminatorKind::Goto{target} => vec![(target, "Goto")],
-                        &TerminatorKind::SwitchInt{ref targets, ..} =>
-                            targets.iter().map(|x| (x.clone(), "SwitchInt")).collect(),
-                        &TerminatorKind::Call{ref destination, cleanup, ..} => {
-                            let mut targets = Vec::new();
-                            if let &Some((_, t)) = destination {
-                                targets.push((t, "Call"));
-                            }
-                            if let Some(t) = cleanup {
-                                targets.push((t, "CleanUp"));
-                            }
-                            targets
-                        },
-                        &TerminatorKind::Resume
-                            | &TerminatorKind::Return
-                            | &TerminatorKind::Unreachable => vec![],
-                        &TerminatorKind::Drop{target, unwind, ..} => {
-                            let mut targets = vec![(target, "Drop")];
-                            if let Some(t) = unwind {
-                                targets.push((t, "Unwind"));
-                            }
-                            targets
-                        },
-                        &TerminatorKind::DropAndReplace{target, unwind, ..} => {
-                            let mut targets = vec![(target, "DropReplace")];
-                            if let Some(t) = unwind {
-                                targets.push((t, "Unwind"));
-                            }
-                            targets
-                        },
-                        &TerminatorKind::Assert{target, cleanup, ..} => {
-                            let mut targets = vec![(target, "Assert")];
-                            if let Some(t) = cleanup {
-                                targets.push((t, "Cleanup"));
-                            }
-                            targets
-                        },
-                    }
-                }
-            };
-            self.render_node(blk_id, successors, &blk.statements);
-        }
-
-        // terminate dot file
-        self.dot_file.write_all(b"}\n").expect("write failed");
-    }
-
-    fn dot_out(&mut self, s: &str) {
-        self.dot_file.write_all(s.as_bytes()).expect("write failed");
     }
 }
 
